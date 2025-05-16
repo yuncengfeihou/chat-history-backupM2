@@ -564,58 +564,71 @@ async function executeBackupLogic(settings) {
 async function performBackupConditional() {
     if (isBackupInProgress) {
         logDebug('备份已在进行中，跳过本次请求');
-        return;
+        return false; // 返回 false 表示未执行
     }
 
+    // 获取当前设置
     const currentSettings = extension_settings[PLUGIN_NAME];
-     if (!currentSettings || typeof currentSettings.backupDebounceDelay !== 'number') {
-         console.error('[聊天自动备份] 无法获取有效的防抖延迟设置，取消备份');
-         return false;
-     }
+    if (!currentSettings || typeof currentSettings.backupDebounceDelay !== 'number') {
+        console.error('[聊天自动备份] 无法获取有效的防抖延迟设置，取消备份');
+        return false;
+    }
 
-    // *** 新增：添加延迟，等待其他插件更新 metadata ***
-    const delay = currentSettings.backupDebounceDelay > 0 ? currentSettings.backupDebounceDelay / 2 : 50; // 使用防抖延迟的一半作为等待时间，或者至少50ms
-     logDebug(`执行条件备份 (performBackupConditional)，等待 ${delay}ms 以确保 metadata 更新`);
-     await new Promise(resolve => setTimeout(resolve, delay));
+    logDebug('执行条件备份 (performBackupConditional)');
+
+    // *** 新增：尝试先调用一次 saveChatConditional 来确保元数据被刷新 ***
+    try {
+        logDebug('尝试调用 saveChatConditional() 以刷新元数据...');
+        await saveChatConditional(); // 这是SillyTavern核心函数
+        // 可以再加一个短暂的延迟，以防 saveChatConditional 内部有异步操作未完全结束
+        await new Promise(resolve => setTimeout(resolve, 100)); // 例如 100ms
+        logDebug('saveChatConditional() 调用完成，继续获取上下文');
+    } catch (e) {
+        console.warn('[聊天自动备份] 调用 saveChatConditional 时发生错误 (可能无害):', e);
+    }
     // *** 新增结束 ***
 
 
-    // 再次检查，防止在等待期间上下文变化
-    const chatKeyAfterDelay = getCurrentChatKey();
-    const contextAfterDelay = getContext();
-    if (!chatKeyAfterDelay || chatKeyAfterDelay !== getCurrentChatKey()) { // 比较延迟前后的chatKey，虽然上面的延迟不应该改变chatKey，但安全起见
-         logDebug('等待期间上下文可能已变化，取消本次备份');
-         return false;
+    // 重新获取上下文，因为 saveChatConditional 可能已经改变了它
+    const context = getContext();
+    const chatKey = getCurrentChatKey(); // 确保在获取 context 后调用
+
+    if (!chatKey) {
+        logDebug('无法获取有效的聊天标识符 (在 saveChatConditional 后)，取消备份');
+        return false;
     }
-    // 确保 metadata 对象确实加载了
-     if (!contextAfterDelay.chat_metadata) {
-         console.warn('[聊天自动备份] 等待后 chat_metadata 仍无效，取消备份');
-         return false;
-     }
-     if (!contextAfterDelay.chat || contextAfterDelay.chat.length === 0) {
-         logDebug('等待后聊天记录为空，取消备份');
-         return false;
-     }
+    if (!context.chat_metadata) { // 检查 chat_metadata 本身
+        console.warn('[聊天自动备份] chat_metadata 无效 (在 saveChatConditional 后)，取消备份');
+        return false;
+    }
+    if (!context.chat || context.chat.length === 0) {
+        logDebug('聊天记录为空 (在 saveChatConditional 后)，取消备份');
+        return false;
+    }
+
+    // 检查 chat_metadata.sheets
+    if (!context.chat_metadata.sheets || context.chat_metadata.sheets.length === 0) {
+        console.warn('[聊天自动备份] chat_metadata.sheets 无效或为空 (在 saveChatConditional 后)，取消备份');
+        // 在这里你可以选择是否要回退到从模板构建，或者直接取消
+        // 为了确保备份的是真实数据，这里选择取消
+        return false;
+    }
 
 
-    // 原始的锁和备份逻辑继续...
     isBackupInProgress = true;
     logDebug('设置备份锁');
     try {
-        // ... 获取 chat 和 metadata ...
-        const context = getContext(); // 再次获取最新的上下文，包含等待后的 metadata
-        const { chat, chat_metadata } = context; // 使用这里获取的 chat 和 chat_metadata
-
-        // ... 后续的深拷贝、保存、清理逻辑 ...
-        const success = await executeBackupLogic_Core(chat, chat_metadata, currentSettings); // 将核心逻辑封装到新函数中并传入数据
+        // 现在 chat 和 chat_metadata 应该是最新的
+        const { chat, chat_metadata } = context;
+        const success = await executeBackupLogic_Core(chat, chat_metadata, currentSettings);
         if (success) {
             await updateBackupsList();
         }
-         return success; // 返回核心逻辑的结果
+        return success;
     } catch (error) {
         console.error('[聊天自动备份] 条件备份执行失败:', error);
         toastr.error(`备份失败: ${error.message || '未知错误'}`, '聊天自动备份');
-         return false;
+        return false;
     } finally {
         isBackupInProgress = false;
         logDebug('释放备份锁');
