@@ -579,14 +579,17 @@ async function performBackupConditional() {
     // *** 新增：尝试先调用一次 saveChatConditional 来确保元数据被刷新 ***
     try {
         logDebug('尝试调用 saveChatConditional() 以刷新元数据...');
-        await saveChatConditional(); // 这是SillyTavern核心函数
+        // 添加日志：在调用 saveChatConditional() 之前
+        console.log('[聊天自动备份] Before saveChatConditional', getContext().chatMetadata); // 使用 getContext() 获取，因为这是备份插件实际使用的
+        await saveChatConditional();
         // 可以再加一个短暂的延迟，以防 saveChatConditional 内部有异步操作未完全结束
         await new Promise(resolve => setTimeout(resolve, 100)); // 例如 100ms
         logDebug('saveChatConditional() 调用完成，继续获取上下文');
+        // 添加日志：在调用 saveChatConditional() 之后
+        console.log('[聊天自动备份] After saveChatConditional', getContext().chatMetadata); // 再次使用 getContext() 获取
     } catch (e) {
         console.warn('[聊天自动备份] 调用 saveChatConditional 时发生错误 (可能无害):', e);
     }
-    // *** 新增结束 ***
 
 
     // 重新获取上下文，因为 saveChatConditional 可能已经改变了它
