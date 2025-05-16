@@ -600,20 +600,19 @@ async function performBackupConditional() {
         logDebug('无法获取有效的聊天标识符 (在 saveChatConditional 后)，取消备份');
         return false;
     }
-    if (!context.chat_metadata) { // 检查 chat_metadata 本身
+    if (!context.chat_metadata || !context.chat_metadata.sheets || context.chat_metadata.sheets.length === 0) {
         console.warn('[聊天自动备份] chat_metadata 无效 (在 saveChatConditional 后)，取消备份');
-        return false;
-    }
-    if (!context.chat || context.chat.length === 0) {
-        logDebug('聊天记录为空 (在 saveChatConditional 后)，取消备份');
-        return false;
-    }
-
-    // 检查 chat_metadata.sheets
-    if (!context.chat_metadata.sheets || context.chat_metadata.sheets.length === 0) {
-        console.warn('[聊天自动备份] chat_metadata.sheets 无效或为空 (在 saveChatConditional 后)，取消备份');
-        // 在这里你可以选择是否要回退到从模板构建，或者直接取消
-        // 为了确保备份的是真实数据，这里选择取消
+        // 新增日志：打印每个子条件的值
+        console.warn('[聊天自动备份] Cancellation Details:', {
+            contextDefined: !!context, // context 是否定义
+            chatMetadataDefined: !!context?.chat_metadata, // chat_metadata 是否定义
+            sheetsDefined: !!context?.chat_metadata?.sheets, // sheets 是否定义
+            isSheetsArray: Array.isArray(context?.chat_metadata?.sheets), // sheets 是否是数组
+            sheetsLength: context?.chat_metadata?.sheets?.length, // sheets 长度
+            condition1: !context.chat_metadata,
+            condition2: !context.chat_metadata?.sheets, // 使用 ?. 安全访问
+            condition3: context?.chat_metadata?.sheets?.length === 0 // 使用 ?. 安全访问
+        });
         return false;
     }
 
